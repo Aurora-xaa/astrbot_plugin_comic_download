@@ -1,0 +1,20 @@
+{
+  "proxy": {
+    "description": "下载代理",
+    "type": "string",
+    "default": "",
+    "hint": "例如 http://127.0.0.1:7890；留空则直连"
+  },
+  "max_chapters": {
+    "description": "单次最多发送章节数",
+    "type": "int",
+    "default": 0,
+    "hint": "0 表示不限制；超出部分不会发送"
+  },
+  "cleanup_seconds": {
+    "description": "临时文件保留时间（秒）",
+    "type": "int",
+    "default": 1800,
+    "hint": "PDF 发送后，临时图片与 PDF 会在此时间后自动删除"
+  }
+}
