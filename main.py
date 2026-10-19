@@ -20,8 +20,10 @@ USAGE = (
     "用法：\n"
     "/jm <本子ID或链接> —— 下载整本（多章节会按章节分别发送 PDF）\n"
     "/jmc <章节ID或链接> —— 只下载指定章节\n"
+    "/jm p<章节ID> —— 只下载指定章节（与原项目 CLI 的 p 前缀写法一致）\n"
     "示例：/jm 422866 或 /jm https://18comic.vip/album/422866/\n"
-    "示例：/jmc 422866 或 /jmc https://18comic.vip/photo/422866/"
+    "示例：/jmc 777001 或 /jm p777001\n"
+    "章节ID就是章节页链接 /photo/<章节ID>/ 中的数字。"
 )
 
 _URL_ID_RE = re.compile(r"/(album|photo)/(\d+)", re.IGNORECASE)
@@ -47,6 +49,10 @@ def _parse_target(first: str, second: str) -> tuple[str, str] | None:
 
     if not raw:
         return None
+
+    # 与原项目 CLI 一致：p<id> 表示章节(photo)，a<id> 表示本子(album)
+    if len(raw) > 1 and raw[0].lower() in ("p", "a") and raw[1:].isdigit():
+        return ("photo" if raw[0].lower() == "p" else "album"), raw[1:]
 
     url_match = _URL_ID_RE.search(raw)
     if url_match:
