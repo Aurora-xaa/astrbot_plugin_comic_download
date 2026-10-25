@@ -21,8 +21,10 @@ USAGE = (
     "/jm <本子ID或链接> —— 下载整本（多章节会按章节分别发送 PDF）\n"
     "/jmc <章节ID或链接> —— 只下载指定章节\n"
     "/jm p<章节ID> —— 只下载指定章节（与原项目 CLI 的 p 前缀写法一致）\n"
+    "/jmv <本子ID或链接> —— 查询本子详情\n"
     "示例：/jm 422866 或 /jm https://18comic.vip/album/422866/\n"
     "示例：/jmc 777001 或 /jm p777001\n"
+    "示例：/jmv 422866\n"
     "章节ID就是章节页链接 /photo/<章节ID>/ 中的数字。"
 )
 
@@ -70,6 +72,53 @@ def _parse_target(first: str, second: str) -> tuple[str, str] | None:
     return None
 
 
+def _parse_album_query(raw: str) -> str | None:
+    """按原项目 jmv 的习惯解析本子 ID：支持 /album/ 链接、a 前缀、纯文本中的数字。"""
+    raw = (raw or "").strip()
+    if not raw:
+        return None
+
+    url_match = _URL_ID_RE.search(raw)
+    if url_match:
+        if url_match.group(1).lower() != "album":
+            return None
+        return url_match.group(2)
+
+    if raw[0].lower() == "a" and raw[1:].isdigit():
+        return raw[1:]
+    if raw[0].lower() == "p":
+        return None
+
+    numbers = re.findall(r"\d+", raw)
+    if numbers:
+        # 与原项目 jmv 一致："350谁还没看过234" -> "350234"
+        return "".join(numbers)
+    return None
+
+
+def _split_text(text: str, limit: int = 2500) -> list[str]:
+    """按行切分长文本，避免超出聊天平台单条消息长度限制。"""
+    if len(text) <= limit:
+        return [text]
+
+    chunks: list[str] = []
+    buffer = ""
+    for line in text.splitlines(keepends=True):
+        while len(line) > limit:
+            if buffer:
+                chunks.append(buffer.rstrip("\n"))
+                buffer = ""
+            chunks.append(line[:limit])
+            line = line[limit:]
+        if len(buffer) + len(line) > limit:
+            chunks.append(buffer.rstrip("\n"))
+            buffer = ""
+        buffer += line
+    if buffer.strip():
+        chunks.append(buffer.rstrip("\n"))
+    return chunks
+
+
 def _sanitize_filename(name: str, max_length: int = 60) -> str:
     name = re.sub(r'[\\/:*?"<>|\r\n\t]', "_", name).strip(" .")
     if len(name) > max_length:
@@ -80,8 +129,8 @@ def _sanitize_filename(name: str, max_length: int = 60) -> str:
 @register(
     PLUGIN_NAME,
     "Aurora",
-    "使用 JMComic 下载漫画，按章节转换为 PDF 并发送。",
-    "0.1.0",
+    "使用 JMComic 下载漫画并按章节发送 PDF，支持查询本子详情。",
+    "0.2.0",
 )
 class ComicDownloadPlugin(Star):
     def __init__(self, context: Context, config: dict | None = None):
@@ -123,6 +172,29 @@ class ComicDownloadPlugin(Star):
         """下载指定章节并发送 PDF。"""
         async for result in self._handle(event, first, second, forced_mode="photo"):
             yield result
+
+    @filter.command("jmv", alias={"jm查询", "jm详情", "本子详情"})
+    async def view_album(self, event: AstrMessageEvent, query: str = ""):
+        """查询本子详情，输出样式与原项目 jmv 一致。"""
+        album_id = _parse_album_query(query)
+        if album_id is None:
+            yield event.plain_result(
+                "用法：/jmv <本子ID或链接>\n"
+                "示例：/jmv 422866 或 /jmv https://18comic.vip/album/422866/\n"
+                "（查询的是本子详情，章节下载请使用 /jmc）"
+            )
+            return
+
+        yield event.plain_result(f"正在查询本子 {album_id} 的详情……")
+        try:
+            text = await asyncio.to_thread(self._query_album_sync, album_id)
+        except Exception as e:
+            logger.exception("[comic_download] 查询本子详情失败: %s", e)
+            yield event.plain_result(f"查询失败：{e}")
+            return
+
+        for chunk in _split_text(text):
+            yield event.plain_result(chunk)
 
     async def _handle(
         self,
@@ -242,6 +314,64 @@ class ComicDownloadPlugin(Star):
             option_dict["client"] = {"postman": {"meta_data": {"proxies": proxy}}}
 
         return jmcomic.JmOption.construct(option_dict)
+
+    # ------------------------------------------------------------------ querying
+
+    def _query_album_sync(self, album_id: str) -> str:
+        option = self._build_query_option()
+        client = option.new_jm_client()
+        album = client.get_album_detail(album_id)
+        return self._format_album_detail(album)
+
+    def _build_query_option(self) -> jmcomic.JmOption:
+        option_dict = {}
+        proxy = self._config_str("proxy", "")
+        if proxy:
+            option_dict["client"] = {"postman": {"meta_data": {"proxies": proxy}}}
+        return jmcomic.JmOption.construct(option_dict)
+
+    @staticmethod
+    def _truncate_list(items, limit: int = 10) -> str:
+        if len(items) <= limit:
+            return ", ".join(items)
+        return ", ".join(items[:limit]) + f" ...等{len(items)}个"
+
+    def _format_album_detail(self, album) -> str:
+        """完全沿用原项目 jmv (JmViewUI.print_album_detail) 的输出样式。"""
+        sep = "─" * 50
+        lines = [
+            sep,
+            f"  📖 标题:  {album.name}",
+            f"  🆔 ID:    JM{album.album_id}",
+            f"  🔗 链接:  {jmcomic.JmcomicText.format_album_url(album.album_id)}",
+            f"  🎨 封面:  {jmcomic.JmcomicText.get_album_cover_url(album.album_id)}",
+            f"  ✍️ 作者:  {self._truncate_list(album.authors) if album.authors else '未知'}",
+            sep,
+            f"  📅 发布日期:  {album.pub_date}",
+            f"  📅 更新日期:  {album.update_date}",
+            f"  📄 总页数:    {album.page_count}",
+            f"  👀 观看:      {album.views}",
+            f"  ❤️ 点赞:     {album.likes}",
+            f"  💬 评论:      {album.comment_count}",
+            sep,
+        ]
+
+        if album.tags:
+            lines.append(f"  🏷️ 标签:  {self._truncate_list(album.tags)}")
+        if album.actors:
+            lines.append(f"  🎭 人物:  {self._truncate_list(album.actors)}")
+        if album.works:
+            lines.append(f"  📚 作品:  {self._truncate_list(album.works)}")
+        if album.description:
+            lines.append(f"  📝 简介:  {album.description}")
+
+        lines.append(sep)
+        lines.append(f"  📑 章节 ({len(album.episode_list)}):")
+        for pid, pindex, pname in album.episode_list:
+            lines.append(f"     第{pindex}話  {pname.strip()}  (id: {pid})")
+        lines.append(sep)
+
+        return "\n".join(lines)
 
     def _rename_pdfs(self, result, pdf_paths: list[Path]) -> list[tuple[str, Path]]:
         """把以章节 ID 命名的 PDF 重命名为可读的章节名，并按章节顺序排列。"""
