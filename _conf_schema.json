@@ -3,7 +3,7 @@
     "description": "下载代理",
     "type": "string",
     "default": "",
-    "hint": "例如 http://127.0.0.1:7890；留空则直连"
+    "hint": "填写 HTTP 代理地址；留空则直连"
   },
   "cleanup_seconds": {
     "description": "临时文件保留时间（秒）",

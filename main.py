@@ -5,8 +5,8 @@ import re
 import shutil
 import time
 import uuid
+from collections.abc import AsyncGenerator
 from pathlib import Path
-from typing import AsyncGenerator
 
 import jmcomic
 from astrbot.api import logger
@@ -178,7 +178,7 @@ class ComicDownloadPlugin(Star):
             self._temp_root = StarTools.get_data_dir(PLUGIN_NAME) / "temp"
             self._temp_root.mkdir(parents=True, exist_ok=True)
             self._cleanup_stale_dirs(self._temp_root)
-        except Exception:
+        except Exception:  # noqa: BLE001 - 插件初始化失败不应阻断加载
             logger.exception("[comic_download] 初始化临时目录失败")
 
     async def terminate(self):
@@ -209,7 +209,7 @@ class ComicDownloadPlugin(Star):
         yield event.plain_result(f"正在查询本子 {album_id} 的详情……")
         try:
             text = await asyncio.to_thread(self._query_album_sync, album_id)
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 - 向用户返回统一失败提示
             logger.exception("[comic_download] 查询本子详情失败: %s", e)
             yield event.plain_result(f"查询失败：{e}")
             return
@@ -263,7 +263,7 @@ class ComicDownloadPlugin(Star):
 
             chain = [File(name=name, file=str(path)) for name, path in pdfs]
             yield event.chain_result(chain)
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 - 向用户返回统一失败提示
             logger.exception("[comic_download] 下载失败: %s", e)
             yield event.plain_result(f"下载失败：{e}")
         finally:
@@ -449,7 +449,7 @@ class ComicDownloadPlugin(Star):
             try:
                 for photo in album:
                     photo_map[photo.photo_id] = photo
-            except Exception:
+            except Exception:  # noqa: BLE001 - 遍历失败时仍可发送已生成的 PDF
                 logger.debug("[comic_download] 遍历章节列表失败", exc_info=True)
 
         entries: list[tuple[int, str, Path]] = []
@@ -492,7 +492,11 @@ class ComicDownloadPlugin(Star):
 
     @staticmethod
     def _photo_display_name(photo, album) -> str:
-        title = getattr(photo, "indextitle", "") or getattr(photo, "name", "") or getattr(photo, "photo_id", "chapter")
+        title = (
+            getattr(photo, "indextitle", "")
+            or getattr(photo, "name", "")
+            or getattr(photo, "photo_id", "chapter")
+        )
         album_title = ""
         if album is not None:
             album_title = getattr(album, "oname", "") or getattr(album, "title", "")
@@ -519,7 +523,9 @@ class ComicDownloadPlugin(Star):
                 if child.is_dir() and child.stat().st_mtime < cutoff:
                     shutil.rmtree(child, ignore_errors=True)
             except OSError:
-                logger.debug("[comic_download] 清理旧目录失败: %s", child, exc_info=True)
+                logger.debug(
+                    "[comic_download] 清理旧目录失败: %s", child, exc_info=True
+                )
 
     def _schedule_cleanup(self, workdir: Path) -> None:
         delay = max(self._config_int("cleanup_seconds", 1800), 60)
@@ -544,11 +550,15 @@ class ComicDownloadPlugin(Star):
     # ------------------------------------------------------------------ config helpers
 
     def _config_str(self, key: str, default: str = "") -> str:
-        value = self.config.get(key, default) if hasattr(self.config, "get") else default
+        value = (
+            self.config.get(key, default) if hasattr(self.config, "get") else default
+        )
         return str(value).strip() if value is not None else default
 
     def _config_int(self, key: str, default: int = 0) -> int:
-        value = self.config.get(key, default) if hasattr(self.config, "get") else default
+        value = (
+            self.config.get(key, default) if hasattr(self.config, "get") else default
+        )
         try:
             return int(value)
         except (TypeError, ValueError):

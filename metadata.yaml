@@ -1,6 +1,8 @@
 name: astrbot_plugin_comic_download
-display_name: 漫画下载
-desc: 使用 JMComic 下载漫画并按章节发送 PDF，支持查询本子详情。
+display_name: 漫画下载Comic_download
+desc: 使用 JMComic 下载漫画并按章节发送 PDF，支持查询本子详情；整本下载最多发送前 5 个章节。
+short_desc: JM 漫画下载与查询，按章节发送 PDF。
 version: v0.5.0
 author: Aurora
 repo: https://github.com/Aurora-xaa/astrbot_plugin_comic_download
+# support_platforms 按需求默认留空，不声明支持平台
