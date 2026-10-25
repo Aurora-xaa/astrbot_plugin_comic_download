@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="logo.png" alt="漫画下载 Logo" width="180" />
+</p>
+
 # 漫画下载
 
 一个基于 [JMComic-Crawler-Python](https://github.com/hect0x7/JMComic-Crawler-Python) 的 AstrBot 插件：下载漫画后按章节转换为 PDF 发送，并支持查询本子详情。
@@ -91,12 +95,60 @@ pip install -r requirements.txt
 
 ## 致谢
 
-- [JMComic-Crawler-Python](https://github.com/hect0x7/JMComic-Crawler-Python)：提供漫画下载、章节查询等能力，本插件的查询输出样式参考其 `jmv` 查看器。
-- [img2pdf](https://github.com/josch/img2pdf)：提供图片转 PDF 能力。
-- [AstrBot](https://github.com/AstrBotDevs/AstrBot)：提供插件运行框架。
-- AstrBot 插件模板：提供项目结构参考。
+本插件的下载、章节解析与详情查询能力基于以下开源项目实现，感谢原作者与所有贡献者。
 
-## 开源许可
+<table>
+  <tr>
+    <td align="center" width="50%">
+      <a href="https://github.com/hect0x7/JMComic-Crawler-Python">
+        <picture>
+          <source media="(prefers-color-scheme: dark)" srcset="https://github-readme-stats.vercel.app/api/pin/?username=hect0x7&repo=JMComic-Crawler-Python&theme=radical" />
+          <source media="(prefers-color-scheme: light)" srcset="https://github-readme-stats.vercel.app/api/pin/?username=hect0x7&repo=JMComic-Crawler-Python" />
+          <img alt="JMComic-Crawler-Python" src="https://github-readme-stats.vercel.app/api/pin/?username=hect0x7&repo=JMComic-Crawler-Python" />
+        </picture>
+      </a>
+      <br />
+      <sub>漫画下载、章节解析与 <code>jmv</code> 详情查询能力</sub>
+    </td>
+    <td align="center" width="50%">
+      <a href="https://github.com/josch/img2pdf">
+        <picture>
+          <source media="(prefers-color-scheme: dark)" srcset="https://github-readme-stats.vercel.app/api/pin/?username=josch&repo=img2pdf&theme=radical" />
+          <source media="(prefers-color-scheme: light)" srcset="https://github-readme-stats.vercel.app/api/pin/?username=josch&repo=img2pdf" />
+          <img alt="img2pdf" src="https://github-readme-stats.vercel.app/api/pin/?username=josch&repo=img2pdf" />
+        </picture>
+      </a>
+      <br />
+      <sub>图片转换为 PDF</sub>
+    </td>
+  </tr>
+</table>
 
-本项目使用 AGPL-3.0 许可证，详见仓库中的 [LICENSE](LICENSE) 文件。  
-使用、修改或分发本项目时，请遵守许可证要求，并保留相关版权与许可声明。
+<table>
+  <tr>
+    <td align="center" width="50%">
+      <a href="https://github.com/AstrBotDevs/AstrBot">
+        <picture>
+          <source media="(prefers-color-scheme: dark)" srcset="https://github-readme-stats.vercel.app/api/pin/?username=AstrBotDevs&repo=AstrBot&theme=radical" />
+          <source media="(prefers-color-scheme: light)" srcset="https://github-readme-stats.vercel.app/api/pin/?username=AstrBotDevs&repo=AstrBot" />
+          <img alt="AstrBot" src="https://github-readme-stats.vercel.app/api/pin/?username=AstrBotDevs&repo=AstrBot" />
+        </picture>
+      </a>
+      <br />
+      <sub>插件运行与消息平台接入框架</sub>
+    </td>
+    <td align="center" width="50%">
+      <a href="https://github.com/Soulter/helloworld">
+        <picture>
+          <source media="(prefers-color-scheme: dark)" srcset="https://github-readme-stats.vercel.app/api/pin/?username=Soulter&repo=helloworld&theme=radical" />
+          <source media="(prefers-color-scheme: light)" srcset="https://github-readme-stats.vercel.app/api/pin/?username=Soulter&repo=helloworld" />
+          <img alt="AstrBot Plugin Template" src="https://github-readme-stats.vercel.app/api/pin/?username=Soulter&repo=helloworld" />
+        </picture>
+      </a>
+      <br />
+      <sub>AstrBot 插件模板与项目结构参考</sub>
+    </td>
+  </tr>
+</table>
+
+> 本插件仅调用上述项目的公开接口，未修改其源代码。`/jmv` 的输出样式参考 JMComic-Crawler-Python 的 `jmv` 查看器，相关设计与实现归原项目所有。
