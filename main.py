@@ -23,14 +23,10 @@ PLUGIN_NAME = "astrbot_plugin_comic_download"
 
 USAGE = (
     "用法：\n"
-    "/jm <本子ID或链接> —— 下载整本（多章节会按章节分别发送 PDF）\n"
+    "/jm <本子ID> —— 下载整本（多章节会按章节分别发送 PDF）\n"
     "/jm <本子ID> p<章节序号> —— 下载该本子的第 x 话\n"
-    "/jmc <章节ID或链接> —— 按章节 ID 直接下载\n"
-    "/jmv <本子ID或链接> —— 查询本子详情\n"
-    "示例：/jm 422866 或 /jm https://18comic.vip/album/422866/\n"
-    "示例：/jm 422866 p3（下载本子 422866 的第 3 话）\n"
-    "示例：/jmc 777001\n"
-    "示例：/jmv 422866"
+    "/jmv <本子ID> —— 查询本子详情\n"
+    "可直接粘贴本子链接。"
 )
 
 _URL_ID_RE = re.compile(r"/(album|photo)/(\d+)", re.IGNORECASE)
@@ -94,20 +90,14 @@ def _parse_jm_command(
             return None, USAGE
         mode, jm_id = parsed
         if mode != "album":
-            return None, (
-                "下载指定章节请使用：/jm <本子ID> p<章节序号>；"
-                "按章节 ID 下载请使用 /jmc <章节ID>。"
-            )
+            return None, "下载指定章节请使用：/jm <本子ID> p<章节序号>。"
         return ("album", jm_id, None), None
 
     if len(tokens) == 2:
         parsed = _parse_target(tokens[0], "")
         chapter_match = re.fullmatch(r"[pP](\d+)", tokens[1])
         if parsed is None or parsed[0] != "album" or chapter_match is None:
-            return None, (
-                "用法：/jm <本子ID> p<章节序号>\n"
-                "示例：/jm 422866 p3（下载本子 422866 的第 3 话）"
-            )
+            return None, "用法：/jm <本子ID> p<章节序号>"
         return ("chapter", parsed[1], chapter_match.group(1)), None
 
     return None, USAGE
@@ -171,7 +161,7 @@ def _sanitize_filename(name: str, max_length: int = 60) -> str:
     PLUGIN_NAME,
     "Aurora",
     "使用 JMComic 下载漫画并按章节发送 PDF，支持查询本子详情。",
-    "0.4.0",
+    "0.4.1",
 )
 class ComicDownloadPlugin(Star):
     def __init__(self, context: Context, config: dict | None = None):
@@ -208,30 +198,14 @@ class ComicDownloadPlugin(Star):
         async for result in self._handle(event, *target):
             yield result
 
-    @filter.command("jmc", alias={"jmchapter", "jm章节"})
-    async def download_chapter(
-        self, event: AstrMessageEvent, first: str = "", second: str = ""
-    ):
-        """按章节 ID 下载指定章节并发送 PDF。"""
-        target = _parse_target(first, second)
-        if target is None:
-            yield event.plain_result(
-                "用法：/jmc <章节ID或链接>\n"
-                "示例：/jmc 777001 或 /jmc https://18comic.vip/photo/777001/"
-            )
-            return
-        async for result in self._handle(event, "photo", target[1]):
-            yield result
-
     @filter.command("jmv", alias={"jm查询", "jm详情", "本子详情"})
     async def view_album(self, event: AstrMessageEvent, query: str = ""):
         """查询本子详情，输出样式与原项目 jmv 一致。"""
         album_id = _parse_album_query(query)
         if album_id is None:
             yield event.plain_result(
-                "用法：/jmv <本子ID或链接>\n"
-                "示例：/jmv 422866 或 /jmv https://18comic.vip/album/422866/\n"
-                "（查询的是本子详情，章节下载请使用 /jmc）"
+                "用法：/jmv <本子ID>\n"
+                "可直接粘贴本子链接。"
             )
             return
 
@@ -263,8 +237,6 @@ class ComicDownloadPlugin(Star):
         try:
             if mode == "chapter":
                 label = f"本子 {jm_id} 的第{chapter}话"
-            elif mode == "photo":
-                label = f"章节 {jm_id}"
             else:
                 label = f"本子 {jm_id}"
             yield event.plain_result(
@@ -313,8 +285,6 @@ class ComicDownloadPlugin(Star):
         if mode == "chapter":
             photo_id = self._resolve_photo_id(option, jm_id, chapter)
             result = jmcomic.download_photo(photo_id, option, check_exception=False)
-        elif mode == "photo":
-            result = jmcomic.download_photo(jm_id, option, check_exception=False)
         else:
             result = jmcomic.download_album(jm_id, option, check_exception=False)
 
