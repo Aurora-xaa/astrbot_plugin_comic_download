@@ -23,10 +23,9 @@ PLUGIN_NAME = "astrbot_plugin_comic_download"
 
 USAGE = (
     "用法：\n"
-    "/jm <本子ID> —— 下载整本（多章节会按章节分别发送 PDF）\n"
-    "/jm <本子ID> p<章节序号> —— 下载该本子的第 x 话\n"
-    "/jmv <本子ID> —— 查询本子详情\n"
-    "可直接粘贴本子链接。"
+    "/jm <本子ID或链接> —— 下载整本（多章节会按章节分别发送 PDF）\n"
+    "/jm <本子ID或链接> p<章节序号> —— 下载该本子的第 x 话\n"
+    "/jmv <本子ID或链接> —— 查询本子详情"
 )
 
 _URL_ID_RE = re.compile(r"/(album|photo)/(\d+)", re.IGNORECASE)
@@ -90,14 +89,14 @@ def _parse_jm_command(
             return None, USAGE
         mode, jm_id = parsed
         if mode != "album":
-            return None, "下载指定章节请使用：/jm <本子ID> p<章节序号>。"
+            return None, "下载指定章节请使用：/jm <本子ID或链接> p<章节序号>。"
         return ("album", jm_id, None), None
 
     if len(tokens) == 2:
         parsed = _parse_target(tokens[0], "")
         chapter_match = re.fullmatch(r"[pP](\d+)", tokens[1])
         if parsed is None or parsed[0] != "album" or chapter_match is None:
-            return None, "用法：/jm <本子ID> p<章节序号>"
+            return None, "用法：/jm <本子ID或链接> p<章节序号>"
         return ("chapter", parsed[1], chapter_match.group(1)), None
 
     return None, USAGE
@@ -161,7 +160,7 @@ def _sanitize_filename(name: str, max_length: int = 60) -> str:
     PLUGIN_NAME,
     "Aurora",
     "使用 JMComic 下载漫画并按章节发送 PDF，支持查询本子详情。",
-    "0.4.1",
+    "0.4.2",
 )
 class ComicDownloadPlugin(Star):
     def __init__(self, context: Context, config: dict | None = None):
@@ -203,10 +202,7 @@ class ComicDownloadPlugin(Star):
         """查询本子详情，输出样式与原项目 jmv 一致。"""
         album_id = _parse_album_query(query)
         if album_id is None:
-            yield event.plain_result(
-                "用法：/jmv <本子ID>\n"
-                "可直接粘贴本子链接。"
-            )
+            yield event.plain_result("用法：/jmv <本子ID或链接>")
             return
 
         yield event.plain_result(f"正在查询本子 {album_id} 的详情……")
