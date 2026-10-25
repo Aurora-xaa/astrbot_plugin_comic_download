@@ -1,8 +1,11 @@
-<div align="center"></div>
+<div align="center">
 
-![Logo|180](https://raw.githubusercontent.com/Aurora-xaa/astrbot_plugin_comic_download/master/logo.png)  
+![Logo|180](https://raw.githubusercontent.com/Aurora-xaa/astrbot_plugin_comic_download/master/logo.png)
 
 # 漫画下载
+
+</div>
+
 一个基于 [JMComic-Crawler-Python](https://github.com/hect0x7/JMComic-Crawler-Python) 的 AstrBot 插件：下载漫画后按章节转换为 PDF 发送，并支持查询本子详情。
 
 ## ✨ 功能特性
