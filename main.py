@@ -20,6 +20,7 @@ except ImportError:  # 兼容没有 GreedyStr 的旧版本
     GreedyStr = str
 
 PLUGIN_NAME = "astrbot_plugin_comic_download"
+MAX_ALBUM_CHAPTERS = 5
 
 USAGE = (
     "用法：\n"
@@ -160,7 +161,7 @@ def _sanitize_filename(name: str, max_length: int = 60) -> str:
     PLUGIN_NAME,
     "Aurora",
     "使用 JMComic 下载漫画并按章节发送 PDF，支持查询本子详情。",
-    "0.4.2",
+    "0.5.0",
 )
 class ComicDownloadPlugin(Star):
     def __init__(self, context: Context, config: dict | None = None):
@@ -239,9 +240,15 @@ class ComicDownloadPlugin(Star):
                 f"开始下载{label}，下载完成后会按章节发送 PDF，请稍候……"
             )
 
+            photo_ids, notice = await asyncio.to_thread(
+                self._prepare_sync, mode, jm_id, chapter
+            )
+            if notice:
+                yield event.plain_result(notice)
+
             workdir = self._create_workdir()
             pdfs, warning = await asyncio.to_thread(
-                self._download_sync, mode, jm_id, workdir, chapter
+                self._download_photos_sync, photo_ids, workdir
             )
 
             if not pdfs:
@@ -249,12 +256,6 @@ class ComicDownloadPlugin(Star):
                     f"没有生成 PDF：下载失败或该目标没有可用图片。{warning}"
                 )
                 return
-
-            max_chapters = self._config_int("max_chapters", 0)
-            if max_chapters > 0 and len(pdfs) > max_chapters:
-                skipped = len(pdfs) - max_chapters
-                pdfs = pdfs[:max_chapters]
-                warning += f"（按配置仅发送前 {max_chapters} 个章节，跳过 {skipped} 个）"
 
             yield event.plain_result(
                 f"下载完成，共 {len(pdfs)} 个章节 PDF，正在发送……{warning}"
@@ -272,48 +273,41 @@ class ComicDownloadPlugin(Star):
 
     # ------------------------------------------------------------------ downloading
 
-    def _download_sync(
-        self, mode: str, jm_id: str, workdir: Path, chapter: str | None = None
-    ) -> tuple[list[tuple[str, Path]], str]:
-        """在线程中执行同步下载并返回 PDF 列表。"""
-        option = self._build_option(workdir)
+    def _prepare_sync(
+        self, mode: str, jm_id: str, chapter: str | None = None
+    ) -> tuple[list[str], str]:
+        """查询本子章节列表，确定要下载的章节（整本最多 5 话）。"""
+        option = self._build_query_option()
+        client = option.new_jm_client()
+        album = client.get_album_detail(jm_id)
 
         if mode == "chapter":
-            photo_id = self._resolve_photo_id(option, jm_id, chapter)
-            result = jmcomic.download_photo(photo_id, option, check_exception=False)
-        else:
-            result = jmcomic.download_album(jm_id, option, check_exception=False)
+            return [self._resolve_photo_id(album, chapter)], ""
 
-        warning = ""
-        downloader = result.downloader
-        if downloader.has_download_failures:
-            failed_photos = len(downloader.download_failed_photo)
-            failed_images = len(downloader.download_failed_image)
-            warning = (
-                f"（注意：{failed_photos} 个章节、{failed_images} 张图片下载失败）"
-            )
-
-        pdf_paths = [
-            Path(p)
-            for p in result.manifest.get_export_filepath_list("pdf")
-            if p and Path(p).is_file()
-        ]
-        return self._rename_pdfs(result, pdf_paths), warning
+        return self._select_album_photo_ids(album)
 
     @staticmethod
-    def _resolve_photo_id(
-        option: jmcomic.JmOption, album_id: str, chapter: str | None
-    ) -> str:
-        """把“本子 ID + 第 x 话”解析为该话的 photo_id。"""
-        client = option.new_jm_client()
-        album = client.get_album_detail(album_id)
+    def _select_album_photo_ids(album) -> tuple[list[str], str]:
+        photo_ids = [str(entry[0]) for entry in album.episode_list]
+        selected = photo_ids[:MAX_ALBUM_CHAPTERS]
+        if len(photo_ids) > MAX_ALBUM_CHAPTERS:
+            notice = (
+                f"该本子共 {len(photo_ids)} 话，最多发送前 "
+                f"{MAX_ALBUM_CHAPTERS} 个章节，正在下载……"
+            )
+            return selected, notice
+        return selected, ""
 
+    @staticmethod
+    def _resolve_photo_id(album, chapter: str | None) -> str:
+        """把“本子 + 第 x 话”解析为该话的 photo_id。"""
         try:
             target_index = str(int(str(chapter)))
         except (TypeError, ValueError):
             target_index = str(chapter)
 
-        for pid, pindex, _pname in album.episode_list:
+        for entry in album.episode_list:
+            pid, pindex = entry[0], entry[1]
             try:
                 if str(int(pindex)) == target_index:
                     return str(pid)
@@ -322,8 +316,39 @@ class ComicDownloadPlugin(Star):
                     return str(pid)
 
         raise ValueError(
-            f"本子 {album_id} 没有第{chapter}话（该本子共 {len(album.episode_list)} 话）"
+            f"本子 {album.album_id} 没有第{chapter}话"
+            f"（该本子共 {len(album.episode_list)} 话）"
         )
+
+    def _download_photos_sync(
+        self, photo_ids: list[str], workdir: Path
+    ) -> tuple[list[tuple[str, Path]], str]:
+        """在线程中批量下载章节并返回 PDF 列表。"""
+        option = self._build_option(workdir)
+        batch = jmcomic.download_photo(photo_ids, option, check_exception=False)
+
+        pdfs: list[tuple[str, Path]] = []
+        notes: list[str] = []
+        for item in batch:
+            pdf_paths = [
+                Path(p)
+                for p in item.manifest.get_export_filepath_list("pdf")
+                if p and Path(p).is_file()
+            ]
+            pdfs.extend(self._rename_pdfs(item, pdf_paths))
+
+            downloader = item.downloader
+            if downloader.has_download_failures:
+                notes.append(
+                    f"{len(downloader.download_failed_photo)} 个章节、"
+                    f"{len(downloader.download_failed_image)} 张图片下载失败"
+                )
+
+        if batch.failed:
+            notes.append(f"{len(batch.failed)} 个章节请求失败")
+
+        warning = f"（注意：{'；'.join(notes)}）" if notes else ""
+        return pdfs, warning
 
     def _build_option(self, workdir: Path) -> jmcomic.JmOption:
         option_dict = {
