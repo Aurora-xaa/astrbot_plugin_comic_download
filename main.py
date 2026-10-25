@@ -14,16 +14,23 @@ from astrbot.api.event import AstrMessageEvent, filter
 from astrbot.api.message_components import File
 from astrbot.api.star import Context, Star, StarTools, register
 
+try:
+    from astrbot.core.star.filter.command import GreedyStr
+except ImportError:  # 兼容没有 GreedyStr 的旧版本
+    GreedyStr = str
+
 PLUGIN_NAME = "astrbot_plugin_comic_download"
 
 USAGE = (
     "用法：\n"
     "/jm <本子ID或链接> —— 下载整本（多章节会按章节分别发送 PDF）\n"
-    "/jmc <章节ID或链接> —— 只下载指定章节\n"
     "/jm p<章节ID> —— 只下载指定章节（与原项目 CLI 的 p 前缀写法一致）\n"
+    "/jm <本子ID> p<章节ID> ... —— 一次下载多个目标\n"
+    "/jmc <章节ID或链接> —— 只下载指定章节\n"
     "/jmv <本子ID或链接> —— 查询本子详情\n"
     "示例：/jm 422866 或 /jm https://18comic.vip/album/422866/\n"
     "示例：/jmc 777001 或 /jm p777001\n"
+    "示例：/jm 422866 p777001（与原项目 jmcomic 422866 p777001 一致）\n"
     "示例：/jmv 422866\n"
     "章节ID就是章节页链接 /photo/<章节ID>/ 中的数字。"
 )
@@ -70,6 +77,16 @@ def _parse_target(first: str, second: str) -> tuple[str, str] | None:
         return mode, number_match.group(1)
 
     return None
+
+
+def _parse_targets(text: str) -> list[tuple[str, str]]:
+    """解析空格分隔的多个下载目标，如 "422866 p777001"。"""
+    targets: list[tuple[str, str]] = []
+    for token in (text or "").split():
+        parsed = _parse_target(token, "")
+        if parsed is not None:
+            targets.append(parsed)
+    return targets
 
 
 def _parse_album_query(raw: str) -> str | None:
@@ -130,7 +147,7 @@ def _sanitize_filename(name: str, max_length: int = 60) -> str:
     PLUGIN_NAME,
     "Aurora",
     "使用 JMComic 下载漫画并按章节发送 PDF，支持查询本子详情。",
-    "0.2.0",
+    "0.3.0",
 )
 class ComicDownloadPlugin(Star):
     def __init__(self, context: Context, config: dict | None = None):
@@ -158,11 +175,10 @@ class ComicDownloadPlugin(Star):
     # ------------------------------------------------------------------ commands
 
     @filter.command("jm", alias={"jmcomic", "漫画下载"})
-    async def download_album(
-        self, event: AstrMessageEvent, first: str = "", second: str = ""
-    ):
-        """下载整本漫画，多章节会按章节分别发送 PDF。"""
-        async for result in self._handle(event, first, second, forced_mode=None):
+    async def download(self, event: AstrMessageEvent, ids: GreedyStr):
+        """下载本子或指定章节；支持空格分隔多个目标，如 123 p456。"""
+        targets = _parse_targets(str(ids))
+        async for result in self._handle(event, targets, forced_mode=None):
             yield result
 
     @filter.command("jmc", alias={"jmchapter", "jm章节"})
@@ -170,7 +186,9 @@ class ComicDownloadPlugin(Star):
         self, event: AstrMessageEvent, first: str = "", second: str = ""
     ):
         """下载指定章节并发送 PDF。"""
-        async for result in self._handle(event, first, second, forced_mode="photo"):
+        target = _parse_target(first, second)
+        targets = [target] if target is not None else []
+        async for result in self._handle(event, targets, forced_mode="photo"):
             yield result
 
     @filter.command("jmv", alias={"jm查询", "jm详情", "本子详情"})
@@ -199,18 +217,15 @@ class ComicDownloadPlugin(Star):
     async def _handle(
         self,
         event: AstrMessageEvent,
-        first: str,
-        second: str,
+        targets: list[tuple[str, str]],
         forced_mode: str | None,
     ) -> AsyncGenerator:
-        target = _parse_target(first, second)
-        if target is None:
+        if not targets:
             yield event.plain_result(USAGE)
             return
 
-        mode, jm_id = target
         if forced_mode:
-            mode = forced_mode
+            targets = [(forced_mode, jm_id) for _, jm_id in targets]
 
         session_key = event.unified_msg_origin
         if session_key in self._running_sessions:
@@ -218,33 +233,60 @@ class ComicDownloadPlugin(Star):
             return
 
         self._running_sessions.add(session_key)
-        workdir: Path | None = None
+        workdirs: list[Path] = []
         try:
-            workdir = self._create_workdir()
-            kind = "章节" if mode == "photo" else "本子"
-            yield event.plain_result(
-                f"开始下载{kind} {jm_id}，下载完成后会按章节发送 PDF，请稍候……"
-            )
+            if len(targets) == 1:
+                mode, jm_id = targets[0]
+                kind = "章节" if mode == "photo" else "本子"
+                yield event.plain_result(
+                    f"开始下载{kind} {jm_id}，下载完成后会按章节发送 PDF，请稍候……"
+                )
+            else:
+                yield event.plain_result(
+                    f"开始下载 {len(targets)} 个目标，下载完成后会按章节发送 PDF，请稍候……"
+                )
 
-            pdfs, warning = await asyncio.to_thread(
-                self._download_sync, mode, jm_id, workdir
-            )
+            pdfs: list[tuple[str, Path]] = []
+            notes: list[str] = []
+            for index, (mode, jm_id) in enumerate(targets, start=1):
+                kind = "章节" if mode == "photo" else "本子"
+                if len(targets) > 1:
+                    yield event.plain_result(
+                        f"[{index}/{len(targets)}] 正在下载{kind} {jm_id}……"
+                    )
+
+                workdir = self._create_workdir()
+                workdirs.append(workdir)
+                try:
+                    target_pdfs, warning = await asyncio.to_thread(
+                        self._download_sync, mode, jm_id, workdir
+                    )
+                except Exception as e:
+                    logger.exception(
+                        "[comic_download] %s %s 下载失败: %s", kind, jm_id, e
+                    )
+                    notes.append(f"{kind} {jm_id} 下载失败：{e}")
+                    continue
+
+                pdfs.extend(target_pdfs)
+                if warning:
+                    notes.append(f"{kind} {jm_id}：{warning}")
 
             if not pdfs:
-                yield event.plain_result(
-                    f"没有生成 PDF：下载失败或该{kind}没有可用图片。{warning}"
-                )
+                reason = "；".join(notes) if notes else "下载失败或没有可用图片"
+                yield event.plain_result(f"没有生成 PDF：{reason}")
                 return
 
             max_chapters = self._config_int("max_chapters", 0)
             if max_chapters > 0 and len(pdfs) > max_chapters:
                 skipped = len(pdfs) - max_chapters
                 pdfs = pdfs[:max_chapters]
-                warning += f"（按配置仅发送前 {max_chapters} 个章节，跳过 {skipped} 个）"
+                notes.append(f"按配置仅发送前 {max_chapters} 个章节，跳过 {skipped} 个")
 
-            yield event.plain_result(
-                f"下载完成，共 {len(pdfs)} 个章节 PDF，正在发送……{warning}"
-            )
+            summary = f"下载完成，共 {len(pdfs)} 个章节 PDF，正在发送……"
+            if notes:
+                summary += "\n" + "\n".join(notes)
+            yield event.plain_result(summary)
 
             chain = [File(name=name, file=str(path)) for name, path in pdfs]
             yield event.chain_result(chain)
@@ -253,7 +295,7 @@ class ComicDownloadPlugin(Star):
             yield event.plain_result(f"下载失败：{e}")
         finally:
             self._running_sessions.discard(session_key)
-            if workdir is not None:
+            for workdir in workdirs:
                 self._schedule_cleanup(workdir)
 
     # ------------------------------------------------------------------ downloading
